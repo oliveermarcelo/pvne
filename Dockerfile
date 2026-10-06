@@ -12,6 +12,9 @@ RUN npm ci
 
 FROM deps AS build
 COPY . .
+# Só para o build: o Next importa os módulos do servidor ao coletar as rotas e o Prisma exige a variável.
+# Nenhuma conexão é aberta aqui; a URL real vem do docker compose em tempo de execução.
+ENV DATABASE_URL="postgresql://build:build@127.0.0.1:5432/build?schema=public"
 RUN npx prisma generate && npx next build
 
 FROM base AS runner
