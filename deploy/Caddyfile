@@ -1,0 +1,18 @@
+# Proxy HTTPS do PVNE Cards (Caddy emite e renova os certificados Let's Encrypt sozinho).
+# Os domínios vêm de SITE_DOMAINS no .env, separados por vírgula. Ex.:
+#   SITE_DOMAINS=pvne.cards, www.pvne.cards
+{$SITE_DOMAINS} {
+	encode zstd gzip
+
+	# Sobe fotos de até 6 MB e documentos do vendedor
+	request_body {
+		max_size 12MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+
+	reverse_proxy app:3000
+}

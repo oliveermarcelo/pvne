@@ -46,9 +46,12 @@ Os dados de demonstração só são criados fora de produção (ou com `SEED_DEM
 ## Produção (VPS com Docker)
 
 ```bash
-cp .env.example .env         # ajuste APP_URL, CRON_SECRET, SMTP_*, SEED_ADMIN_* e POSTGRES_PASSWORD
+cp .env.example .env         # ajuste APP_URL, SITE_DOMAINS, CRON_SECRET, SMTP_*, SEED_ADMIN_* e POSTGRES_PASSWORD
 docker compose up -d --build
 ```
+
+O HTTPS é automático: o serviço `caddy` atende as portas 80/443 e emite/renova o certificado Let's Encrypt
+para cada domínio de `SITE_DOMAINS` — basta o DNS (registro A) apontar para o IP da VPS.
 
 Serviços:
 
@@ -56,7 +59,8 @@ Serviços:
 |---|---|
 | `db` | PostgreSQL 16 (volume `pgdata`) |
 | `migrate` | roda `prisma migrate deploy` + seed básico e termina |
-| `app` | Next.js na porta `APP_PORT` (padrão 3000) — coloque atrás do Nginx/Traefik com HTTPS |
+| `app` | Next.js na porta `APP_PORT` (padrão 3000), aberta só para a própria VPS |
+| `caddy` | proxy HTTPS público (80/443) com certificado automático |
 | `worker` | a cada 15 s ativa leilões agendados, encerra os vencidos, envia avisos de “acabando” e entrega os push que ficaram na fila |
 
 Imagens públicas ficam no volume `uploads`; documentos de verificação e comprovantes ficam em `storage/private` (volume `private`) e nunca são públicos. Configure a chave PIX da plataforma em **Admin → Configurações** antes de abrir as vendas. Deploy de atualização: `git pull && docker compose up -d --build`.
