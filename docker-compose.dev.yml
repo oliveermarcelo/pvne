@@ -1,0 +1,16 @@
+# Apenas o PostgreSQL, para desenvolver com "npm run dev" na máquina.
+#   docker compose -f docker-compose.dev.yml up -d
+name: pvne-cards-dev
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pvne
+      POSTGRES_PASSWORD: pvne
+      POSTGRES_DB: pvne
+    ports:
+      - "5547:5432"   # 5432 costuma estar ocupada por um PostgreSQL local
+    volumes:
+      - pgdata-dev:/var/lib/postgresql/data
+volumes:
+  pgdata-dev:

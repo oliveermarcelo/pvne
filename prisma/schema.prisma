@@ -1,0 +1,771 @@
+// PVNE Cards — modelo de dados
+// Valores monetários são sempre armazenados em CENTAVOS (Int) para evitar erros de ponto flutuante.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+// A URL de conexão fica em prisma.config.ts (Prisma 7).
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+  DELETED
+}
+
+enum SellerStatus {
+  NONE
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum SellerApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum PersonType {
+  PF
+  PJ
+}
+
+enum PixKeyType {
+  CPF
+  CNPJ
+  EMAIL
+  PHONE
+  RANDOM
+}
+
+enum PayoutStatus {
+  NOT_DUE
+  PENDING
+  PAID
+}
+
+enum OrderEventType {
+  STATUS
+  MESSAGE
+  ADMIN_NOTE
+  SYSTEM
+}
+
+enum AlbumStatus {
+  PUBLIC
+  PRIVATE
+  ARCHIVED
+}
+
+enum CardCondition {
+  NEW
+  EXCELLENT
+  VERY_GOOD
+  GOOD
+  FAIR
+}
+
+enum CardStatus {
+  ACTIVE
+  BLOCKED
+  REMOVED
+}
+
+enum ListingType {
+  DIRECT_SALE
+  NEGOTIATION
+  AUCTION
+}
+
+enum ListingStatus {
+  ACTIVE
+  SOLD
+  CANCELLED
+  EXPIRED
+  BLOCKED
+}
+
+enum AuctionStatus {
+  SCHEDULED
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum NegotiationStatus {
+  OPEN
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+
+enum NegotiationEventType {
+  OFFER
+  COUNTER_OFFER
+  ACCEPT
+  REJECT
+  CANCEL
+  MESSAGE
+  ADMIN_NOTE
+  SYSTEM
+}
+
+enum OrderSource {
+  DIRECT_SALE
+  NEGOTIATION
+  AUCTION
+}
+
+// Fluxo: AWAITING_PAYMENT → PAYMENT_REVIEW → PAID → SHIPPED → DELIVERED → COMPLETED (repasse feito)
+// PENDING é legado (pedidos anteriores ao pagamento intermediado).
+enum OrderStatus {
+  PENDING
+  AWAITING_PAYMENT
+  PAYMENT_REVIEW
+  PAID
+  SHIPPED
+  DELIVERED
+  COMPLETED
+  CANCELLED
+  DISPUTED
+}
+
+enum NotificationType {
+  OFFER_RECEIVED
+  COUNTER_OFFER
+  OFFER_ACCEPTED
+  OFFER_REJECTED
+  NEGOTIATION_MESSAGE
+  NEGOTIATION_CANCELLED
+  BID_RECEIVED
+  OUTBID
+  AUCTION_ENDING_SOON
+  AUCTION_WON
+  AUCTION_ENDED
+  AUCTION_CANCELLED
+  ITEM_SOLD
+  PURCHASE_CONFIRMED
+  CONTACT_ANSWERED
+  ORDER_UPDATE
+  ORDER_MESSAGE
+  SELLER_STATUS
+  SYSTEM
+}
+
+enum ContactType {
+  CONTACT
+  SUGGESTION
+  COMPLAINT
+}
+
+enum ContactStatus {
+  OPEN
+  IN_REVIEW
+  ANSWERED
+  CLOSED
+}
+
+// ─────────────────────────────────────────────────────────────
+// Usuários e autenticação
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id           String     @id @default(cuid())
+  name         String
+  username     String     @unique
+  email        String     @unique
+  phone        String?
+  passwordHash String     @map("password_hash")
+  avatarUrl    String?    @map("avatar_url")
+  bio          String?
+  city         String?
+  state        String?    @db.VarChar(2)
+  role         UserRole   @default(USER)
+  status       UserStatus @default(ACTIVE)
+  // Para anunciar é preciso aprovação da administração
+  sellerStatus SellerStatus @default(NONE) @map("seller_status")
+  lastLoginAt  DateTime?  @map("last_login_at")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+
+  sessions            Session[]
+  passwordResetTokens PasswordResetToken[]
+  albums              Album[]
+  cards               Card[]
+  listings            Listing[]
+  auctionsSelling     Auction[]            @relation("AuctionSeller")
+  auctionsLeading     Auction[]            @relation("AuctionCurrentBidder")
+  auctionsWon         Auction[]            @relation("AuctionWinner")
+  bids                Bid[]
+  negotiationsBuying  Negotiation[]        @relation("NegotiationBuyer")
+  negotiationsSelling Negotiation[]        @relation("NegotiationSeller")
+  negotiationEvents   NegotiationMessage[]
+  ordersBuying        Order[]              @relation("OrderBuyer")
+  ordersSelling       Order[]              @relation("OrderSeller")
+  favorites           Favorite[]
+  notifications       Notification[]
+  pushSubscriptions   PushSubscription[]
+  contactMessages     ContactMessage[]     @relation("ContactAuthor")
+  contactResponses    ContactMessage[]     @relation("ContactResponder")
+  auditLogs           AuditLog[]
+  pagesEdited         Page[]
+  sellerApplications  SellerApplication[]  @relation("ApplicationUser")
+  sellerReviews       SellerApplication[]  @relation("ApplicationReviewer")
+  sellerProfile       SellerProfile?
+  orderEvents         OrderEvent[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model Session {
+  // id = hash SHA-256 do token do cookie (o token em si nunca é salvo)
+  id        String   @id
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  ip        String?
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushSubscriptions PushSubscription[]
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Catálogo
+// ─────────────────────────────────────────────────────────────
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  iconUrl     String?  @map("icon_url")
+  imageUrl    String?  @map("image_url")
+  color       String?  @db.VarChar(9)
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0) @map("sort_order")
+  // Comissão específica da categoria em pontos-base (1000 = 10%). Nulo = padrão da plataforma.
+  commissionBps Int?   @map("commission_bps")
+  // Preparado para subcategorias (ex.: Pokémon > Escarlate e Violeta)
+  parentId    String?  @map("parent_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  parent   Category?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children Category[] @relation("CategoryTree")
+  albums   Album[]
+  cards    Card[]
+
+  @@index([active, sortOrder])
+  @@map("categories")
+}
+
+model Album {
+  id          String      @id @default(cuid())
+  ownerId     String      @map("owner_id")
+  categoryId  String      @map("category_id")
+  name        String
+  description String?
+  coverUrl    String?     @map("cover_url")
+  status      AlbumStatus @default(PUBLIC)
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  owner    User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  cards    Card[]
+
+  @@index([ownerId])
+  @@index([categoryId])
+  @@map("albums")
+}
+
+model Card {
+  id          String        @id @default(cuid())
+  ownerId     String        @map("owner_id")
+  categoryId  String        @map("category_id")
+  albumId     String?       @map("album_id")
+  name        String
+  code        String?
+  description String?
+  condition   CardCondition
+  edition     String?
+  setName     String?       @map("set_name")
+  language    String?
+  rarity      String?
+  quantity    Int           @default(1)
+  status      CardStatus    @default(ACTIVE)
+  // Rastreia a origem quando o card foi transferido por uma venda
+  originCardId String?      @map("origin_card_id")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  owner     User        @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  category  Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  album     Album?      @relation(fields: [albumId], references: [id], onDelete: SetNull)
+  images    CardImage[]
+  listings  Listing[]
+  favorites Favorite[]
+  orders    Order[]
+
+  @@index([ownerId, status])
+  @@index([categoryId])
+  @@index([albumId])
+  @@map("cards")
+}
+
+model CardImage {
+  id        String   @id @default(cuid())
+  cardId    String   @map("card_id")
+  url       String
+  position  Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, position])
+  @@map("card_images")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Marketplace
+// ─────────────────────────────────────────────────────────────
+
+// Um anúncio é a oferta de um card. Regra no banco: no máximo 1 anúncio ACTIVE por card
+// (índice único parcial criado na migração SQL).
+model Listing {
+  id                String        @id @default(cuid())
+  cardId            String        @map("card_id")
+  sellerId          String        @map("seller_id")
+  type              ListingType
+  status            ListingStatus @default(ACTIVE)
+  // Preço de venda (DIRECT_SALE) ou preço de referência (NEGOTIATION)
+  priceCents        Int?          @map("price_cents")
+  // Valor exibido/ordenável: preço, ou lance atual/inicial no leilão (desnormalizado)
+  currentPriceCents Int           @map("current_price_cents")
+  quantity          Int           @default(1)
+  // Frete fixo definido pelo vendedor (0 = grátis / incluso)
+  shippingCents     Int           @default(0) @map("shipping_cents")
+  notes             String?
+  blockedReason     String?       @map("blocked_reason")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  closedAt          DateTime?     @map("closed_at")
+
+  card         Card          @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  seller       User          @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  auction      Auction?
+  negotiations Negotiation[]
+  orders       Order[]
+
+  @@index([status, type])
+  @@index([sellerId, status])
+  @@index([cardId])
+  @@index([currentPriceCents])
+  @@map("listings")
+}
+
+model Auction {
+  id                   String        @id @default(cuid())
+  listingId            String        @unique @map("listing_id")
+  sellerId             String        @map("seller_id")
+  startingBidCents     Int           @map("starting_bid_cents")
+  // Preço de reserva ("lance mínimo" para a venda acontecer). Opcional.
+  reservePriceCents    Int?          @map("reserve_price_cents")
+  minIncrementCents    Int           @map("min_increment_cents")
+  startsAt             DateTime      @map("starts_at")
+  endsAt               DateTime      @map("ends_at")
+  status               AuctionStatus @default(SCHEDULED)
+  currentBidCents      Int?          @map("current_bid_cents")
+  currentBidderId      String?       @map("current_bidder_id")
+  bidCount             Int           @default(0) @map("bid_count")
+  winnerId             String?       @map("winner_id")
+  winningBidId         String?       @unique @map("winning_bid_id")
+  endingSoonNotifiedAt DateTime?     @map("ending_soon_notified_at")
+  closedAt             DateTime?     @map("closed_at")
+  cancelReason         String?       @map("cancel_reason")
+  createdAt            DateTime      @default(now()) @map("created_at")
+  updatedAt            DateTime      @updatedAt @map("updated_at")
+
+  listing       Listing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  seller        User    @relation("AuctionSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  currentBidder User?   @relation("AuctionCurrentBidder", fields: [currentBidderId], references: [id], onDelete: Restrict)
+  winner        User?   @relation("AuctionWinner", fields: [winnerId], references: [id], onDelete: Restrict)
+  winningBid    Bid?    @relation("AuctionWinningBid", fields: [winningBidId], references: [id], onDelete: Restrict)
+  bids          Bid[]   @relation("AuctionBids")
+  orders        Order[]
+
+  @@index([status, endsAt])
+  @@index([sellerId])
+  @@map("auctions")
+}
+
+// Histórico IMUTÁVEL: trigger no banco bloqueia UPDATE e DELETE.
+model Bid {
+  id          String   @id @default(cuid())
+  auctionId   String   @map("auction_id")
+  bidderId    String   @map("bidder_id")
+  amountCents Int      @map("amount_cents")
+  ip          String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  auction    Auction  @relation("AuctionBids", fields: [auctionId], references: [id], onDelete: Restrict)
+  bidder     User     @relation(fields: [bidderId], references: [id], onDelete: Restrict)
+  winningFor Auction? @relation("AuctionWinningBid")
+
+  @@unique([auctionId, amountCents])
+  @@index([auctionId, createdAt])
+  @@index([bidderId, createdAt])
+  @@map("bids")
+}
+
+model Negotiation {
+  id                String            @id @default(cuid())
+  listingId         String            @map("listing_id")
+  buyerId           String            @map("buyer_id")
+  sellerId          String            @map("seller_id")
+  status            NegotiationStatus @default(OPEN)
+  currentOfferCents Int               @map("current_offer_cents")
+  lastOfferById     String            @map("last_offer_by_id")
+  closedAt          DateTime?         @map("closed_at")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+
+  listing  Listing              @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  buyer    User                 @relation("NegotiationBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  seller   User                 @relation("NegotiationSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  messages NegotiationMessage[]
+  orders   Order[]
+
+  @@index([buyerId, status])
+  @@index([sellerId, status])
+  @@index([listingId, status])
+  @@map("negotiations")
+}
+
+// Linha do tempo da negociação (propostas, respostas, mensagens). Imutável.
+model NegotiationMessage {
+  id            String               @id @default(cuid())
+  negotiationId String               @map("negotiation_id")
+  authorId      String?              @map("author_id")
+  type          NegotiationEventType
+  amountCents   Int?                 @map("amount_cents")
+  body          String?
+  createdAt     DateTime             @default(now()) @map("created_at")
+
+  negotiation Negotiation @relation(fields: [negotiationId], references: [id], onDelete: Cascade)
+  author      User?       @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([negotiationId, createdAt])
+  @@map("negotiation_messages")
+}
+
+// Toda venda concluída vira um pedido. O pagamento passa pela plataforma (PIX intermediado):
+// o card só é transferido ao comprador quando ele confirma o recebimento, e o vendedor
+// recebe o repasse (valor do item − comissão + frete) depois disso.
+model Order {
+  id            String      @id @default(cuid())
+  code          String      @unique
+  source        OrderSource
+  status        OrderStatus @default(AWAITING_PAYMENT)
+  listingId     String      @map("listing_id")
+  cardId        String      @map("card_id")
+  buyerCardId   String?     @map("buyer_card_id")
+  buyerId       String      @map("buyer_id")
+  sellerId      String      @map("seller_id")
+  auctionId     String?     @map("auction_id")
+  negotiationId String?     @map("negotiation_id")
+  quantity      Int         @default(1)
+
+  // Valores (centavos) — congelados no momento da venda
+  amountCents    Int @map("amount_cents") // valor do item
+  shippingCents  Int @default(0) @map("shipping_cents")
+  totalCents     Int @default(0) @map("total_cents") // pago pelo comprador
+  commissionBps  Int @default(0) @map("commission_bps")
+  feeCents       Int @default(0) @map("fee_cents") // comissão da plataforma
+  sellerNetCents Int @default(0) @map("seller_net_cents") // repasse ao vendedor
+
+  // Pagamento
+  paymentDueAt       DateTime? @map("payment_due_at")
+  paymentReceiptUrl  String?   @map("payment_receipt_url")
+  paymentReportedAt  DateTime? @map("payment_reported_at")
+  paidAt             DateTime? @map("paid_at")
+  paymentConfirmedById String? @map("payment_confirmed_by_id")
+
+  // Entrega (visível ao vendedor só após pagamento confirmado)
+  shipName       String?   @map("ship_name")
+  shipZip        String?   @map("ship_zip")
+  shipStreet     String?   @map("ship_street")
+  shipNumber     String?   @map("ship_number")
+  shipComplement String?   @map("ship_complement")
+  shipDistrict   String?   @map("ship_district")
+  shipCity       String?   @map("ship_city")
+  shipState      String?   @map("ship_state") @db.VarChar(2)
+  carrier        String?
+  trackingCode   String?   @map("tracking_code")
+  shippedAt      DateTime? @map("shipped_at")
+  deliveredAt    DateTime? @map("delivered_at")
+
+  // Repasse ao vendedor
+  payoutStatus    PayoutStatus @default(NOT_DUE) @map("payout_status")
+  payoutPixKey    String?      @map("payout_pix_key")
+  payoutReference String?      @map("payout_reference")
+  payoutAt        DateTime?    @map("payout_at")
+
+  cancelledAt  DateTime? @map("cancelled_at")
+  cancelReason String?   @map("cancel_reason")
+  disputeReason String?  @map("dispute_reason")
+  refundedAt   DateTime? @map("refunded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  listing     Listing      @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  card        Card         @relation(fields: [cardId], references: [id], onDelete: Restrict)
+  buyer       User         @relation("OrderBuyer", fields: [buyerId], references: [id], onDelete: Restrict)
+  seller      User         @relation("OrderSeller", fields: [sellerId], references: [id], onDelete: Restrict)
+  auction     Auction?     @relation(fields: [auctionId], references: [id], onDelete: Restrict)
+  negotiation Negotiation? @relation(fields: [negotiationId], references: [id], onDelete: Restrict)
+  events      OrderEvent[]
+
+  @@unique([listingId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+  @@index([payoutStatus])
+  @@map("orders")
+}
+
+// Linha do tempo + chat do pedido (comprador, vendedor e administração). Imutável.
+model OrderEvent {
+  id        String         @id @default(cuid())
+  orderId   String         @map("order_id")
+  authorId  String?        @map("author_id")
+  type      OrderEventType
+  status    OrderStatus?
+  body      String?
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  order  Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  author User? @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([orderId, createdAt])
+  @@map("order_events")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Vendedores
+// ─────────────────────────────────────────────────────────────
+
+// Pedido de habilitação como vendedor (KYC). Documentos ficam em armazenamento privado.
+model SellerApplication {
+  id              String                  @id @default(cuid())
+  userId          String                  @map("user_id")
+  status          SellerApplicationStatus @default(PENDING)
+  personType      PersonType              @map("person_type")
+  legalName       String                  @map("legal_name")
+  document        String // CPF ou CNPJ (somente dígitos)
+  birthDate       DateTime?               @map("birth_date") @db.Date
+  phone           String
+  zip             String
+  street          String
+  number          String
+  complement      String?
+  district        String
+  city            String
+  state           String                  @db.VarChar(2)
+  pixKeyType      PixKeyType              @map("pix_key_type")
+  pixKey          String                  @map("pix_key")
+  docFrontUrl     String                  @map("doc_front_url")
+  docBackUrl      String?                 @map("doc_back_url")
+  selfieUrl       String                  @map("selfie_url")
+  notes           String?
+  rejectionReason String?                 @map("rejection_reason")
+  reviewedById    String?                 @map("reviewed_by_id")
+  reviewedAt      DateTime?               @map("reviewed_at")
+  createdAt       DateTime                @default(now()) @map("created_at")
+
+  user       User  @relation("ApplicationUser", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId])
+  @@map("seller_applications")
+}
+
+// Dados do vendedor aprovado (usados nos repasses). Gerado a partir do pedido aprovado.
+model SellerProfile {
+  userId        String     @id @map("user_id")
+  applicationId String     @unique @map("application_id")
+  personType    PersonType @map("person_type")
+  legalName     String     @map("legal_name")
+  document      String
+  city          String
+  state         String     @db.VarChar(2)
+  pixKeyType    PixKeyType @map("pix_key_type")
+  pixKey        String     @map("pix_key")
+  approvedAt    DateTime   @default(now()) @map("approved_at")
+  updatedAt     DateTime   @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("seller_profiles")
+}
+
+model Favorite {
+  userId    String   @map("user_id")
+  cardId    String   @map("card_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cardId])
+  @@index([cardId])
+  @@map("favorites")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Comunicação
+// ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  type      NotificationType
+  title     String
+  body      String?
+  link      String?
+  data      Json?
+  readAt    DateTime?        @map("read_at")
+  /// Quando o aviso foi despachado por push (null = ainda na fila). Ver src/server/push.ts
+  pushedAt  DateTime?        @map("pushed_at")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+/// Aparelho inscrito para receber notificações push (Web Push / PWA). Um usuário pode ter vários.
+/// Fica presa à sessão de login daquele aparelho: ao sair da conta (ou trocar a senha), o push para.
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String    @map("user_id")
+  sessionId     String?   @map("session_id")
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  userAgent     String?   @map("user_agent")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastSuccessAt DateTime? @map("last_success_at")
+  failures      Int       @default(0)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  session Session? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@map("push_subscriptions")
+}
+
+model ContactMessage {
+  id            String        @id @default(cuid())
+  type          ContactType   @default(CONTACT)
+  status        ContactStatus @default(OPEN)
+  userId        String?       @map("user_id")
+  name          String
+  email         String
+  whatsapp      String?
+  subject       String
+  message       String
+  adminResponse String?       @map("admin_response")
+  respondedAt   DateTime?     @map("responded_at")
+  respondedById String?       @map("responded_by_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  user        User? @relation("ContactAuthor", fields: [userId], references: [id], onDelete: SetNull)
+  respondedBy User? @relation("ContactResponder", fields: [respondedById], references: [id], onDelete: SetNull)
+
+  @@index([type, status])
+  @@map("contact_messages")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Conteúdo e configuração
+// ─────────────────────────────────────────────────────────────
+
+model Page {
+  slug        String   @id
+  title       String
+  content     String
+  updatedById String?  @map("updated_by_id")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  updatedBy User? @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("pages")
+}
+
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+// Registro de ações importantes. Imutável (trigger no banco).
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?  @map("actor_id")
+  action     String
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id")
+  data       Json?
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  actor User? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}

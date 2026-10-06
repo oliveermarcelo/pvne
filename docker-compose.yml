@@ -1,0 +1,67 @@
+# Sobe tudo com:   docker compose up -d --build
+# Dados de demonstração (opcional):   docker compose run --rm -e SEED_DEMO=1 migrate npm run db:seed
+name: pvne-cards
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pvne}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pvne}
+      POSTGRES_DB: ${POSTGRES_DB:-pvne}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pvne}"]
+      interval: 5s
+      retries: 20
+
+  # Aplica as migrações (e o seed básico: categorias, páginas, admin) e termina.
+  migrate:
+    image: pvne-cards-app
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pvne}:${POSTGRES_PASSWORD:-pvne}@db:5432/${POSTGRES_DB:-pvne}?schema=public
+    command: sh -c "npx prisma migrate deploy && npm run db:seed"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: pvne-cards-app
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pvne}:${POSTGRES_PASSWORD:-pvne}@db:5432/${POSTGRES_DB:-pvne}?schema=public
+      UPLOAD_DIR: /app/storage/uploads
+      PRIVATE_UPLOAD_DIR: /app/storage/private
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - uploads:/app/storage/uploads
+      - private:/app/storage/private
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # Encerra leilões no horário, ativa agendados e envia avisos de "acabando".
+  worker:
+    image: pvne-cards-app
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pvne}:${POSTGRES_PASSWORD:-pvne}@db:5432/${POSTGRES_DB:-pvne}?schema=public
+    command: npm run worker
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  uploads:
+  private:

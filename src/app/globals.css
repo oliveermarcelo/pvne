@@ -1,0 +1,177 @@
+@import "@fontsource-variable/sora/index.css";
+@import "@fontsource-variable/inter/index.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Sora Variable", system-ui, sans-serif;
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+    /* Âncoras e "rolar até" não ficam escondidas atrás do cabeçalho fixo */
+    scroll-padding-top: calc(5rem + env(safe-area-inset-top));
+  }
+  /* Altura da barra de abas inferior (celular), usada por avisos flutuantes */
+  @media (max-width: 1023px) {
+    html:has([data-tabbar]) { --tabbar: 4rem; }
+  }
+  a, button, summary, label, [role="button"] {
+    touch-action: manipulation;
+  }
+  /* Campos com fonte >= 16px no celular: o iPhone não dá zoom ao tocar no campo */
+  @media (max-width: 639px) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+    select:not([multiple]),
+    textarea:not([rows="0"]) {
+      font-size: 16px;
+    }
+  }
+  /* App instalado: sem seleção acidental de texto em menus/botões e sem "puxar" a página inteira no Android */
+  html[data-standalone] nav, html[data-standalone] button, html[data-standalone] summary {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  html[data-standalone] body {
+    overscroll-behavior-y: none;
+  }
+  body {
+    @apply bg-ink-900 font-sans text-mist-100 antialiased;
+    background-image:
+      radial-gradient(1200px 520px at 85% -10%, rgba(2, 62, 230, 0.22), transparent 60%),
+      radial-gradient(900px 420px at -10% 0%, rgba(251, 219, 2, 0.06), transparent 60%),
+      radial-gradient(1000px 600px at 50% 120%, rgba(9, 10, 117, 0.35), transparent 70%);
+    background-attachment: fixed;
+    font-feature-settings: "cv11", "ss01";
+  }
+  /* No celular, fundo "fixed" trava a rolagem (e o iPhone ignora) */
+  @media (max-width: 1023px) {
+    body { background-attachment: scroll; }
+  }
+  h1, h2, h3, h4 {
+    @apply font-display tracking-tight text-mist-100;
+  }
+  ::selection {
+    background: rgba(251, 219, 2, 0.35);
+    color: #03051A;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-gold-400/70 ring-offset-2 ring-offset-ink-900;
+  }
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; }
+}
+
+@layer components {
+  .surface {
+    @apply rounded-2xl border border-brand-400/[0.12] bg-ink-850/80 shadow-card backdrop-blur-sm;
+  }
+  .surface-2 {
+    @apply rounded-xl border border-brand-400/[0.10] bg-ink-800;
+  }
+  .eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.18em] text-gold-400;
+  }
+  /* Título em amarelo com contorno azul, ecoando o logo */
+  .text-logo {
+    @apply text-gold-400;
+    -webkit-text-stroke: 0;
+    text-shadow: 0 3px 0 #0224B8, 0 0 1px #0224B8;
+  }
+  .text-holo {
+    @apply bg-holo bg-clip-text text-transparent;
+  }
+  .text-foil {
+    @apply bg-foil bg-clip-text text-transparent;
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .field {
+    @apply block w-full rounded-xl border border-brand-400/20 bg-ink-950/70 px-3.5 py-2.5 text-sm text-mist-100 placeholder:text-mist-500
+      transition focus:border-gold-400/60 focus:outline-none focus:ring-2 focus:ring-gold-400/20 disabled:opacity-60;
+  }
+  /* Caixa de mensagem de chat: cresce com o texto (onde o navegador suporta) */
+  .chat-input {
+    field-sizing: content;
+    min-height: 48px;
+    max-height: 160px;
+    line-height: 1.45;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    resize: none;
+  }
+  .field-error {
+    @apply border-bad/60 focus:border-bad focus:ring-bad/20;
+  }
+  .link {
+    @apply text-gold-300 underline-offset-4 hover:text-gold-200 hover:underline;
+  }
+  .link-blue {
+    @apply text-brand-300 underline-offset-4 hover:text-brand-200 hover:underline;
+  }
+
+  /* Moldura de card colecionável com brilho holográfico no hover */
+  .holo-frame {
+    @apply relative overflow-hidden rounded-xl;
+  }
+  .holo-frame::after {
+    content: "";
+    @apply pointer-events-none absolute inset-y-0 -left-1/2 w-1/2 opacity-0;
+    background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.28), rgba(63, 197, 255, 0.22), transparent);
+  }
+  .group:hover .holo-frame::after {
+    @apply animate-shine opacity-100;
+  }
+
+  /* Tabelas do admin: no celular cada linha vira um cartão com "rótulo: valor" */
+  @media (max-width: 767px) {
+    .rtable table { min-width: 0 !important; }
+    .rtable thead { display: none; }
+    .rtable tbody, .rtable tr, .rtable td { display: block; }
+    .rtable tbody { border: 0; }
+    .rtable tr { padding: 0.875rem 1rem; }
+    .rtable tr + tr { border-top: 1px solid rgba(255, 255, 255, 0.06); }
+    .rtable td { display: flex; gap: 1rem; justify-content: space-between; align-items: center; padding: 0.3rem 0 !important; text-align: right; }
+    .rtable td > * { min-width: 0; }
+    .rtable td::before { content: attr(data-label); flex-shrink: 0; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #5F6E9E; }
+    .rtable td:first-child { display: block; padding-bottom: 0.4rem !important; text-align: left; font-size: 15px; }
+    .rtable td:first-child::before { display: none; }
+    .rtable td[data-label=""]::before { display: none; }
+    .rtable td[data-label=""] { justify-content: flex-end; }
+    .rtable td:empty { display: none; }
+  }
+
+  .prose-pvne {
+    @apply max-w-none text-[15px] leading-7 text-mist-200;
+  }
+  .prose-pvne h2 { @apply mb-3 mt-10 text-xl font-semibold text-mist-100 first:mt-0; }
+  .prose-pvne h3 { @apply mb-2 mt-6 text-lg font-semibold text-mist-100; }
+  .prose-pvne p { @apply mb-4; }
+  .prose-pvne ul { @apply mb-4 list-disc space-y-1.5 pl-5 marker:text-gold-400; }
+  .prose-pvne ol { @apply mb-4 list-decimal space-y-1.5 pl-5; }
+  .prose-pvne strong { @apply font-semibold text-mist-100; }
+  .prose-pvne a { @apply link; }
+  .prose-pvne blockquote { @apply mb-6 rounded-xl border border-warn/30 bg-warn/5 px-4 py-3 text-sm text-warn; }
+  .prose-pvne blockquote p { @apply mb-0; }
+}
+
+@keyframes loadbar {
+  from { left: -35%; }
+  to { left: 100%; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+
+@layer utilities {
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}
