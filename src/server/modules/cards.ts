@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { audit } from "../audit";
 import { DomainError, ForbiddenError, NotFoundError } from "../errors";
-import { id, intRange, optId, optText, parse, text, uploadUrl, z } from "../validation";
+import { id, requiredChoice, intRange, optId, optText, parse, text, uploadUrl, z } from "../validation";
 import { assertActiveCategory } from "./categories";
 import { getOwnedAlbum } from "./albums";
 import { cardHasOpenOrder } from "./orders";
@@ -12,7 +12,7 @@ export const MAX_CARD_IMAGES = 6;
 export const cardSchema = z.object({
   name: text(2, 120, "Nome do card"),
   code: optText(40, "Código"),
-  categoryId: id,
+  categoryId: requiredChoice("Selecione a categoria."),
   albumId: optId,
   description: optText(3000, "Descrição"),
   condition: z.enum(["NEW", "EXCELLENT", "VERY_GOOD", "GOOD", "FAIR"], {

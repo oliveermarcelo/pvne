@@ -93,7 +93,7 @@ export function ImageUploader({
       </div>
       <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif" multiple={!single} hidden onChange={(e) => upload(e.target.files)} />
       <p className={cn("mt-2 text-xs", error ? "text-bad" : "text-mist-500")}>
-        {error ?? `JPG, PNG, WEBP ou GIF até 5 MB${single ? "" : ` · até ${max} imagens · a primeira é a capa`}.`}
+        {error ?? `JPG, PNG, WEBP ou GIF — fotos do celular são reduzidas automaticamente${single ? "" : ` · até ${max} imagens · a primeira é a capa`}.`}
       </p>
     </div>
   );

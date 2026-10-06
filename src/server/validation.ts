@@ -4,6 +4,31 @@ import { parseLocalDateTime } from "@/lib/dates";
 import { DomainError, zodFieldErrors } from "./errors";
 import { isUploadUrl } from "./storage";
 
+/**
+ * Mensagens padrão do validador em português. Os campos com rótulo próprio (text(), money()…)
+ * já trazem mensagens específicas; isto cobre o resto para nunca aparecer "Required" na tela.
+ */
+z.setErrorMap((issue, ctx) => {
+  switch (issue.code) {
+    case "invalid_type":
+      return { message: issue.received === "undefined" || issue.received === "null" ? "Campo obrigatório." : "Valor inválido." };
+    case "too_small":
+      return { message: issue.type === "string" ? (Number(issue.minimum) <= 1 ? "Campo obrigatório." : `Use ao menos ${issue.minimum} caracteres.`) : issue.type === "array" ? `Selecione ao menos ${issue.minimum}.` : `O valor mínimo é ${issue.minimum}.` };
+    case "too_big":
+      return { message: issue.type === "string" ? `Use no máximo ${issue.maximum} caracteres.` : issue.type === "array" ? `Selecione no máximo ${issue.maximum}.` : `O valor máximo é ${issue.maximum}.` };
+    case "invalid_string":
+      return { message: issue.validation === "email" ? "E-mail inválido." : issue.validation === "url" ? "Endereço (URL) inválido." : "Formato inválido." };
+    case "invalid_enum_value":
+    case "invalid_literal":
+    case "invalid_union":
+      return { message: "Selecione uma opção válida." };
+    case "invalid_date":
+      return { message: "Data inválida." };
+    default:
+      return { message: ctx.defaultError === "Required" ? "Campo obrigatório." : "Valor inválido." };
+  }
+});
+
 const emptyToUndef = (v: unknown) => {
   if (typeof v !== "string") return v;
   const t = v.trim();
@@ -13,7 +38,8 @@ const emptyToUndef = (v: unknown) => {
 /** Texto obrigatório (aparado) */
 export const text = (min: number, max: number, label: string) =>
   z.preprocess(
-    (v) => (typeof v === "string" ? v.trim() : v),
+    // Vazio vira "não informado": mostra "X é obrigatório." em vez de "deve ter ao menos N caracteres"
+    (v) => (typeof v === "string" ? v.trim() || undefined : v),
     z
       .string({ required_error: `${label} é obrigatório.`, invalid_type_error: `${label} é obrigatório.` })
       .min(min, min <= 1 ? `${label} é obrigatório.` : `${label} deve ter ao menos ${min} caracteres.`)
@@ -64,6 +90,8 @@ export const uploadUrl = z.string().refine(isUploadUrl, "Imagem inválida.");
 export const optUploadUrl = z.preprocess(emptyToUndef, uploadUrl.optional());
 
 export const id = z.string().min(1).max(40);
+/** Opção obrigatória de um <select> (ex.: categoria) */
+export const requiredChoice = (message: string) => z.string({ required_error: message, invalid_type_error: message }).min(1, message).max(40, message);
 export const optId = z.preprocess(emptyToUndef, id.optional());
 
 export const checkbox = z.preprocess((v) => v === "on" || v === "true" || v === true, z.boolean());

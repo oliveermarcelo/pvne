@@ -35,7 +35,7 @@ export function NotificationsList({ items }: { items: N[] }) {
                 <span className={cn("block text-sm", n.readAt ? "text-mist-300" : "font-semibold text-mist-100")}>{n.title}</span>
                 {n.body && <span className="mt-0.5 block text-xs text-mist-400">{n.body}</span>}
               </span>
-              <span className="shrink-0 text-[11px] text-mist-500">{timeAgo(n.createdAt)}</span>
+              <span className="shrink-0 text-[11px] text-mist-500" suppressHydrationWarning>{timeAgo(n.createdAt)}</span>
             </Link>
           </li>
         ))}

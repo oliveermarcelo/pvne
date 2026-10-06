@@ -209,7 +209,7 @@ export function AuctionPanel({
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-3">
-                  <span className="text-xs text-mist-500" title={formatDateTime(b.createdAt)}>{timeAgo(b.createdAt)}</span>
+                  <span className="text-xs text-mist-500" title={formatDateTime(b.createdAt)} suppressHydrationWarning>{timeAgo(b.createdAt)}</span>
                   <span className="font-semibold num">{formatBRL(b.amountCents)}</span>
                 </span>
               </li>

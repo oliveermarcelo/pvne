@@ -66,7 +66,7 @@ export default async function ListCardPage({ params, searchParams }: { params: P
           <p className="truncate text-xs text-mist-500">{[card.category.name, card.setName, card.code, CONDITION_LABELS[card.condition]].filter(Boolean).join(" · ")}</p>
         </div>
       </div>
-      <ListingForm action={createListingAction.bind(null, card.id)} maxQuantity={card.quantity} defaultType={sp.tipo === "leilao" ? "AUCTION" : "DIRECT_SALE"} minStart={toLocalInput(new Date())} commissionBps={commissionBps} />
+      <ListingForm action={createListingAction.bind(null, card.id)} maxQuantity={card.quantity} defaultType={sp.tipo === "leilao" ? "AUCTION" : "DIRECT_SALE"} minStart={toLocalInput(new Date())} defaultEnd={toLocalInput(new Date(Date.now() + 7 * 86_400_000)).slice(0, 11) + "21:00"} commissionBps={commissionBps} />
     </>
   );
 }

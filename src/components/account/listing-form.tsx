@@ -1,12 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Gavel, Handshake, Tag } from "lucide-react";
 import { ActionForm, Field, SubmitButton } from "@/components/forms/action-form";
 import { Input, MoneyInput, Textarea } from "@/components/forms/inputs";
 import type { ActionState } from "@/server/errors";
 import { cn } from "@/lib/utils";
 import { formatBRL, parseBRLToCents } from "@/lib/money";
+import { toLocalInput } from "@/lib/dates";
+
+/** Encerramento sugerido: daqui a N dias, às 21h (horário de Brasília), quando há mais gente online */
+function endInDays(days: number) {
+  return toLocalInput(new Date(Date.now() + days * 86_400_000)).slice(0, 11) + "21:00";
+}
 
 const TYPES = [
   { v: "DIRECT_SALE", label: "Venda direta", icon: Tag, desc: "Preço fixo. Quem confirmar primeiro leva." },
@@ -14,8 +20,9 @@ const TYPES = [
   { v: "AUCTION", label: "Leilão", icon: Gavel, desc: "Lances durante um período. Maior lance vence." },
 ] as const;
 
-export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", minStart, commissionBps }: { action: (s: ActionState, fd: FormData) => Promise<ActionState>; maxQuantity: number; defaultType?: string; minStart: string; commissionBps: number }) {
+export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", minStart, defaultEnd, commissionBps }: { action: (s: ActionState, fd: FormData) => Promise<ActionState>; maxQuantity: number; defaultType?: string; minStart: string; defaultEnd?: string; commissionBps: number }) {
   const [type, setType] = useState<string>(defaultType);
+  const endRef = useRef<HTMLInputElement>(null);
   const [price, setPrice] = useState("");
   const cents = parseBRLToCents(price) ?? 0;
   const pct = commissionBps / 100;
@@ -56,7 +63,21 @@ export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", 
                 <Input name="startsAt" type="datetime-local" min={minStart} />
               </Field>
               <Field name="endsAt" label="Encerramento" required hint="Horário de Brasília.">
-                <Input name="endsAt" type="datetime-local" min={minStart} required />
+                <Input ref={endRef} name="endsAt" type="datetime-local" min={minStart} defaultValue={defaultEnd} required />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {[1, 3, 7, 10].map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => {
+                        if (endRef.current) endRef.current.value = endInDays(d);
+                      }}
+                      className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-mist-300 hover:border-gold-400/40 hover:text-gold-200"
+                    >
+                      {d === 1 ? "1 dia" : `${d} dias`}
+                    </button>
+                  ))}
+                </div>
               </Field>
             </div>
           </>

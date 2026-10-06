@@ -90,7 +90,7 @@ export function CardForm({
         </Field>
       </section>
 
-      {!locked && <div className="flex flex-wrap gap-2">
+      {!locked && <div className="grid gap-2 sm:flex sm:flex-wrap">
         <SubmitButton size="lg">{isNew ? "Salvar na coleção" : "Salvar alterações"}</SubmitButton>
         {isNew && <SubmitButton size="lg" variant="outline" name="_then" value="anunciar">Salvar e anunciar</SubmitButton>}
       </div>}

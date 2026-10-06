@@ -1,13 +1,13 @@
 import { db } from "../db";
 import { DomainError, NotFoundError } from "../errors";
-import { id, optText, optUploadUrl, parse, text, z } from "../validation";
+import { id, requiredChoice, optText, optUploadUrl, parse, text, z } from "../validation";
 import { assertActiveCategory } from "./categories";
 
 export const albumSchema = z.object({
   name: text(2, 80, "Nome"),
   description: optText(1000, "Descrição"),
   coverUrl: optUploadUrl,
-  categoryId: id,
+  categoryId: requiredChoice("Selecione a categoria."),
   status: z.enum(["PUBLIC", "PRIVATE", "ARCHIVED"]).default("PUBLIC"),
 });
 
