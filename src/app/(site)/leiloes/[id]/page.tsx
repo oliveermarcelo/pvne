@@ -64,6 +64,7 @@ export default async function AuctionPage({ params, searchParams }: Props) {
         <Link href={`/categorias/${card.category.slug}`} className="hover:text-mist-300">{card.category.name}</Link>
       </nav>
       {sp.publicado && <Alert tone="ok" className="mb-6">Leilão publicado! Compartilhe o link com a comunidade.</Alert>}
+      {sp.alterado && <Alert tone="ok" className="mb-6">Leilão atualizado.</Alert>}
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-12">
         <div className="space-y-6 lg:sticky lg:top-24 lg:self-start">
@@ -94,6 +95,7 @@ export default async function AuctionPage({ params, searchParams }: Props) {
 
           {isSeller && (
             <OwnerListingControls
+              editHref={a.bidCount === 0 && a.listing.status === "ACTIVE" ? `/conta/cards/${card.id}/anuncio` : undefined}
               cancelAction={cancelListingAction.bind(null, a.listingId)}
               canCancel={canCancel}
               cancelHint={a.bidCount > 0 && a.listing.status === "ACTIVE" ? "Leilões com lances não podem ser cancelados pelo vendedor. Se precisar, fale com a administração pela página de contato." : undefined}

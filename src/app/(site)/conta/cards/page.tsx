@@ -68,6 +68,7 @@ export default async function MyCardsPage({ searchParams }: { searchParams: Prom
                   <LinkButton href={l?.auction ? `/leiloes/${l.auction.id}` : `/cards/${c.id}`} variant="ghost" size="sm" aria-label="Ver"><Eye className="h-4 w-4" /></LinkButton>
                   <LinkButton href={`/conta/cards/${c.id}/editar`} variant="ghost" size="sm" aria-label="Editar"><Pencil className="h-4 w-4" /></LinkButton>
                   {!l && c.status === "ACTIVE" && <LinkButton href={`/conta/cards/${c.id}/anunciar`} variant="secondary" size="sm">Anunciar</LinkButton>}
+                  {l && c.status === "ACTIVE" && !(l.auction && l.auction.bidCount > 0) && <LinkButton href={`/conta/cards/${c.id}/anuncio`} variant="secondary" size="sm">Editar anúncio</LinkButton>}
                 </div>
               </div>
             );

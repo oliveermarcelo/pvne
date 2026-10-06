@@ -28,6 +28,19 @@ export async function createListingAction(cardId: string, _: ActionState, fd: Fo
   redirect(`${target}?publicado=1`);
 }
 
+export async function updateListingAction(listingId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  let target = "";
+  const res = await run(async () => {
+    const user = await requireUser();
+    const { ip } = await getRequestMeta();
+    const r = await listings.updateListing(user.id, listingId, formToObject(fd), ip);
+    target = r.auctionId ? `/leiloes/${r.auctionId}` : `/cards/${r.cardId}`;
+  });
+  if (res.error) return res;
+  revalidatePath("/", "layout");
+  redirect(`${target}?alterado=1`);
+}
+
 export async function cancelListingAction(listingId: string): Promise<ActionState> {
   return run(async () => {
     const user = await requireUser();

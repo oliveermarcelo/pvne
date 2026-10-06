@@ -6,7 +6,7 @@ import { ActionForm, Field, SubmitButton } from "@/components/forms/action-form"
 import { Input, MoneyInput, Textarea } from "@/components/forms/inputs";
 import type { ActionState } from "@/server/errors";
 import { cn } from "@/lib/utils";
-import { formatBRL, parseBRLToCents } from "@/lib/money";
+import { centsToInput, formatBRL, parseBRLToCents } from "@/lib/money";
 import { toLocalInput } from "@/lib/dates";
 
 /** Encerramento sugerido: daqui a N dias, às 21h (horário de Brasília), quando há mais gente online */
@@ -20,10 +20,45 @@ const TYPES = [
   { v: "AUCTION", label: "Leilão", icon: Gavel, desc: "Lances durante um período. Maior lance vence." },
 ] as const;
 
-export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", minStart, defaultEnd, commissionBps }: { action: (s: ActionState, fd: FormData) => Promise<ActionState>; maxQuantity: number; defaultType?: string; minStart: string; defaultEnd?: string; commissionBps: number }) {
-  const [type, setType] = useState<string>(defaultType);
+/** Valores atuais do anúncio (modo edição) */
+export type ListingInitial = {
+  type: string;
+  priceCents?: number | null;
+  shippingCents?: number;
+  quantity?: number;
+  notes?: string | null;
+  startingBidCents?: number;
+  minIncrementCents?: number;
+  reservePriceCents?: number | null;
+  startsAt?: string; // valor de datetime-local
+  endsAt?: string;
+  started?: boolean; // leilão já começou: início não muda
+  openNegotiations?: number;
+};
+
+export function ListingForm({
+  action,
+  maxQuantity,
+  defaultType = "DIRECT_SALE",
+  minStart,
+  defaultEnd,
+  commissionBps,
+  initial,
+}: {
+  action: (s: ActionState, fd: FormData) => Promise<ActionState>;
+  maxQuantity: number;
+  defaultType?: string;
+  minStart: string;
+  defaultEnd?: string;
+  commissionBps: number;
+  initial?: ListingInitial;
+}) {
+  const editing = !!initial;
+  const [type, setType] = useState<string>(initial?.type ?? defaultType);
   const endRef = useRef<HTMLInputElement>(null);
-  const [price, setPrice] = useState("");
+  const [price, setPrice] = useState(centsToInput(initial?.priceCents));
+  const switchingAuction = editing && (initial.type === "AUCTION") !== (type === "AUCTION");
+  const closingNegotiations = editing && initial.type === "NEGOTIATION" && type !== "NEGOTIATION" && (initial.openNegotiations ?? 0) > 0;
   const cents = parseBRLToCents(price) ?? 0;
   const pct = commissionBps / 100;
   return (
@@ -54,16 +89,22 @@ export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", 
         ) : (
           <>
             <div className="grid gap-4 sm:grid-cols-3">
-              <Field name="startingBid" label="Lance inicial" required hint="Valor do primeiro lance."><MoneyInput name="startingBid" required /></Field>
-              <Field name="minIncrement" label="Incremento mínimo" required hint="Diferença mínima entre lances."><MoneyInput name="minIncrement" required /></Field>
-              <Field name="reservePrice" label="Lance mínimo de reserva" hint="Opcional. Abaixo disso o card não é vendido."><MoneyInput name="reservePrice" /></Field>
+              <Field name="startingBid" label="Lance inicial" required hint="Valor do primeiro lance."><MoneyInput name="startingBid" required defaultValue={centsToInput(initial?.startingBidCents)} /></Field>
+              <Field name="minIncrement" label="Incremento mínimo" required hint="Diferença mínima entre lances."><MoneyInput name="minIncrement" required defaultValue={centsToInput(initial?.minIncrementCents)} /></Field>
+              <Field name="reservePrice" label="Lance mínimo de reserva" hint="Opcional. Abaixo disso o card não é vendido."><MoneyInput name="reservePrice" defaultValue={centsToInput(initial?.reservePriceCents)} /></Field>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field name="startsAt" label="Início" hint="Deixe em branco para começar agora. Horário de Brasília.">
-                <Input name="startsAt" type="datetime-local" min={minStart} />
-              </Field>
+              {editing && initial.type === "AUCTION" && initial.started && type === "AUCTION" ? (
+                <Field name="startsAt" label="Início" hint="O leilão já começou; o início não pode mudar.">
+                  <Input name="_startsAt" type="datetime-local" defaultValue={initial.startsAt} disabled />
+                </Field>
+              ) : (
+                <Field name="startsAt" label="Início" hint="Deixe em branco para começar agora. Horário de Brasília.">
+                  <Input name="startsAt" type="datetime-local" min={minStart} defaultValue={initial?.type === "AUCTION" ? initial.startsAt : undefined} />
+                </Field>
+              )}
               <Field name="endsAt" label="Encerramento" required hint="Horário de Brasília.">
-                <Input ref={endRef} name="endsAt" type="datetime-local" min={minStart} defaultValue={defaultEnd} required />
+                <Input ref={endRef} name="endsAt" type="datetime-local" min={minStart} defaultValue={initial?.type === "AUCTION" ? initial.endsAt : defaultEnd} required />
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {[1, 3, 7, 10].map((d) => (
                     <button
@@ -83,7 +124,7 @@ export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", 
           </>
         )}
         <Field name="shipping" label="Frete (R$)" hint="Valor fixo cobrado do comprador e repassado a você integralmente. Deixe vazio para frete grátis/incluso.">
-          <MoneyInput name="shipping" placeholder="0,00 (grátis)" />
+          <MoneyInput name="shipping" placeholder="0,00 (grátis)" defaultValue={initial?.shippingCents ? centsToInput(initial.shippingCents) : undefined} />
         </Field>
         <p className="rounded-xl bg-ink-950/50 px-4 py-3 text-xs text-mist-400">
           Comissão PVNE: <b className="text-mist-200">{pct.toLocaleString("pt-BR")}%</b> sobre o valor do item, descontada no repasse.
@@ -94,15 +135,27 @@ export function ListingForm({ action, maxQuantity, defaultType = "DIRECT_SALE", 
         </p>
         <div className="grid gap-4 sm:grid-cols-[140px_1fr]">
           <Field name="quantity" label="Quantidade" hint={`Você tem ${maxQuantity}.`}>
-            <Input name="quantity" type="number" min={1} max={maxQuantity} defaultValue={maxQuantity} />
+            <Input name="quantity" type="number" min={1} max={maxQuantity} defaultValue={initial?.quantity ?? maxQuantity} />
           </Field>
           <Field name="notes" label="Observações para o comprador">
-            <Textarea name="notes" rows={2} maxLength={1000} className="min-h-[46px]" placeholder="Prazo de postagem, embalagem, detalhes do card…" />
+            <Textarea name="notes" rows={2} maxLength={1000} className="min-h-[46px]" placeholder="Prazo de postagem, embalagem, detalhes do card…" defaultValue={initial?.notes ?? undefined} />
           </Field>
         </div>
       </section>
 
-      <SubmitButton size="lg" pendingText="Publicando…">{type === "AUCTION" ? "Publicar leilão" : "Publicar anúncio"}</SubmitButton>
+      {(switchingAuction || closingNegotiations) && (
+        <p className="rounded-xl border border-warn/30 bg-warn/10 px-4 py-3 text-sm text-warn">
+          {switchingAuction
+            ? type === "AUCTION"
+              ? "O anúncio atual sai do ar e o leilão é publicado no lugar."
+              : "O leilão (ainda sem lances) é cancelado e o novo anúncio é publicado no lugar."
+            : null}
+          {closingNegotiations && ` ${initial?.openNegotiations} negociação(ões) em andamento serão encerradas e os compradores avisados.`}
+        </p>
+      )}
+      <SubmitButton size="lg" className="w-full sm:w-auto" pendingText={editing ? "Salvando…" : "Publicando…"}>
+        {editing ? "Salvar alterações" : type === "AUCTION" ? "Publicar leilão" : "Publicar anúncio"}
+      </SubmitButton>
     </ActionForm>
   );
 }

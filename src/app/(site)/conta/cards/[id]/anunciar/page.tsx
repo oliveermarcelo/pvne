@@ -23,7 +23,7 @@ export default async function ListCardPage({ params, searchParams }: { params: P
   const sp = await searchParams;
   const card = await getOwnedCard(user.id, id).catch(() => null);
   if (!card || card.status !== "ACTIVE") notFound();
-  if (card.listings.length) redirect(`/cards/${card.id}`);
+  if (card.listings.length) redirect(`/conta/cards/${card.id}/anuncio`);
   const [me, settings, reserved, cat] = await Promise.all([
     db.user.findUniqueOrThrow({ where: { id: user.id }, select: { role: true, sellerStatus: true } }),
     getSettings(),

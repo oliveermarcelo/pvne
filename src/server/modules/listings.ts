@@ -73,74 +73,223 @@ export async function createListing(actor: Actor, cardId: string, input: unknown
       throw new DomainError(`Você possui ${card.quantity} unidade(s) deste card.`, "VALIDATION", { quantity: "Quantidade maior que a disponível." });
     }
 
-    if (data.type === "AUCTION") {
-      const now = new Date();
-      const startsAt = data.startsAt === "now" ? now : data.startsAt;
-      if (startsAt.getTime() < now.getTime() - 5 * 60_000) {
-        throw new DomainError("A data de início não pode estar no passado.", "VALIDATION", { startsAt: "Data no passado." });
-      }
-      const minHours = settingInt(settings, "auction_min_duration_hours");
-      const maxDays = settingInt(settings, "auction_max_duration_days");
-      const duration = data.endsAt.getTime() - startsAt.getTime();
-      if (duration < minHours * 3_600_000) {
-        throw new DomainError(`O leilão deve durar pelo menos ${minHours} hora(s).`, "VALIDATION", { endsAt: `Duração mínima: ${minHours}h.` });
-      }
-      if (duration > maxDays * 86_400_000) {
-        throw new DomainError(`O leilão pode durar no máximo ${maxDays} dias.`, "VALIDATION", { endsAt: `Duração máxima: ${maxDays} dias.` });
-      }
-      if (data.reservePrice && data.reservePrice < data.startingBid) {
-        throw new DomainError("O lance mínimo de reserva não pode ser menor que o lance inicial.", "VALIDATION", {
-          reservePrice: "Deve ser maior ou igual ao lance inicial.",
-        });
-      }
-      const listing = await tx.listing.create({
-        data: {
-          cardId,
-          sellerId: card.ownerId,
-          type: "AUCTION",
-          quantity: data.quantity,
-          notes: maskText(data.notes),
-          shippingCents: data.shipping,
-          currentPriceCents: data.startingBid,
-          auction: {
-            create: {
-              sellerId: card.ownerId,
-              startingBidCents: data.startingBid,
-              minIncrementCents: data.minIncrement,
-              reservePriceCents: data.reservePrice ?? null,
-              startsAt,
-              endsAt: data.endsAt,
-              status: startsAt <= now ? "ACTIVE" : "SCHEDULED",
-            },
-          },
-        },
-        include: { auction: true },
-      });
-      await audit(tx, {
-        actorId: actor.id,
-        action: isAdmin && actor.id !== card.ownerId ? "admin.auction_created" : "auction.created",
-        entityType: "auction",
-        entityId: listing.auction!.id,
-        data: { cardId, startingBid: data.startingBid, endsAt: data.endsAt.toISOString() },
-        ip,
-      });
-      return { id: listing.id, type: listing.type, cardId, auctionId: listing.auction!.id };
-    }
+    return insertListing(tx, { id: cardId, ownerId: card.ownerId }, data, actor, settings, ip);
+  });
+}
 
+type ListingInput = z.infer<typeof listingSchema>;
+type AuctionInput = Extract<ListingInput, { type: "AUCTION" }>;
+type Settings = Awaited<ReturnType<typeof loadSettings>>;
+
+/** Regras de período e valores do leilão. `fixedStart`: leilão que já começou não muda o início. */
+function checkAuctionInput(data: AuctionInput, settings: Settings, fixedStart?: Date) {
+  const now = new Date();
+  const startsAt = fixedStart ?? (data.startsAt === "now" ? now : data.startsAt);
+  if (!fixedStart && startsAt.getTime() < now.getTime() - 5 * 60_000) {
+    throw new DomainError("A data de início não pode estar no passado.", "VALIDATION", { startsAt: "Data no passado." });
+  }
+  if (data.endsAt.getTime() <= now.getTime()) {
+    throw new DomainError("O encerramento precisa ser no futuro.", "VALIDATION", { endsAt: "Escolha uma data futura." });
+  }
+  const minHours = settingInt(settings, "auction_min_duration_hours");
+  const maxDays = settingInt(settings, "auction_max_duration_days");
+  const duration = data.endsAt.getTime() - startsAt.getTime();
+  if (duration < minHours * 3_600_000) {
+    throw new DomainError(`O leilão deve durar pelo menos ${minHours} hora(s).`, "VALIDATION", { endsAt: `Duração mínima: ${minHours}h.` });
+  }
+  if (duration > maxDays * 86_400_000) {
+    throw new DomainError(`O leilão pode durar no máximo ${maxDays} dias.`, "VALIDATION", { endsAt: `Duração máxima: ${maxDays} dias.` });
+  }
+  if (data.reservePrice && data.reservePrice < data.startingBid) {
+    throw new DomainError("O lance mínimo de reserva não pode ser menor que o lance inicial.", "VALIDATION", {
+      reservePrice: "Deve ser maior ou igual ao lance inicial.",
+    });
+  }
+  return { startsAt, now };
+}
+
+/** Cria o anúncio (e o leilão, se for o caso) dentro de uma transação já com o card travado */
+async function insertListing(tx: Prisma.TransactionClient, card: { id: string; ownerId: string }, data: ListingInput, actor: Actor, settings: Settings, ip: string | null) {
+  const isAdmin = actor.role === "ADMIN";
+  if (data.type === "AUCTION") {
+    const { startsAt, now } = checkAuctionInput(data, settings);
     const listing = await tx.listing.create({
       data: {
-        cardId,
+        cardId: card.id,
         sellerId: card.ownerId,
-        type: data.type,
-        priceCents: data.price,
-        currentPriceCents: data.price,
+        type: "AUCTION",
         quantity: data.quantity,
         notes: maskText(data.notes),
         shippingCents: data.shipping,
+        currentPriceCents: data.startingBid,
+        auction: {
+          create: {
+            sellerId: card.ownerId,
+            startingBidCents: data.startingBid,
+            minIncrementCents: data.minIncrement,
+            reservePriceCents: data.reservePrice ?? null,
+            startsAt,
+            endsAt: data.endsAt,
+            status: startsAt <= now ? "ACTIVE" : "SCHEDULED",
+          },
+        },
       },
+      include: { auction: true },
     });
-    await audit(tx, { actorId: actor.id, action: "listing.created", entityType: "listing", entityId: listing.id, data: { type: data.type, price: data.price }, ip });
-    return { id: listing.id, type: listing.type, cardId, auctionId: null as string | null };
+    await audit(tx, {
+      actorId: actor.id,
+      action: isAdmin && actor.id !== card.ownerId ? "admin.auction_created" : "auction.created",
+      entityType: "auction",
+      entityId: listing.auction!.id,
+      data: { cardId: card.id, startingBid: data.startingBid, endsAt: data.endsAt.toISOString() },
+      ip,
+    });
+    return { id: listing.id, type: listing.type, cardId: card.id, auctionId: listing.auction!.id as string | null };
+  }
+
+  const listing = await tx.listing.create({
+    data: {
+      cardId: card.id,
+      sellerId: card.ownerId,
+      type: data.type,
+      priceCents: data.price,
+      currentPriceCents: data.price,
+      quantity: data.quantity,
+      notes: maskText(data.notes),
+      shippingCents: data.shipping,
+    },
+  });
+  await audit(tx, { actorId: actor.id, action: "listing.created", entityType: "listing", entityId: listing.id, data: { type: data.type, price: data.price }, ip });
+  return { id: listing.id, type: listing.type, cardId: card.id, auctionId: null as string | null };
+}
+
+/** Encerra as negociações abertas de um anúncio, avisando os compradores */
+async function closeOpenNegotiations(tx: Prisma.TransactionClient, listingId: string, cardName: string, message: string, link?: (negId: string) => string) {
+  const openNegs = await tx.negotiation.findMany({ where: { listingId, status: "OPEN" }, select: { id: true, buyerId: true } });
+  if (!openNegs.length) return 0;
+  const now = new Date();
+  await tx.negotiation.updateMany({ where: { id: { in: openNegs.map((n) => n.id) } }, data: { status: "CANCELLED", closedAt: now } });
+  await tx.negotiationMessage.createMany({ data: openNegs.map((n) => ({ negotiationId: n.id, type: "SYSTEM" as const, body: message })) });
+  await notify(
+    tx,
+    openNegs.map((n) => ({
+      userId: n.buyerId,
+      type: "NEGOTIATION_CANCELLED" as const,
+      title: `Negociação encerrada: ${cardName}`,
+      body: message,
+      link: link ? link(n.id) : `/conta/negociacoes/${n.id}`,
+    })),
+  );
+  return openNegs.length;
+}
+
+/**
+ * Edita um anúncio ativo: valor, tipo (venda direta ⇄ propostas ⇄ leilão), frete, quantidade e observações.
+ * - Venda direta ⇄ propostas: alterado no próprio anúncio. Ao sair de "propostas", as negociações abertas são encerradas.
+ * - Leilão sem lances: dá para mudar valores e datas (o início só antes de começar).
+ * - Trocar de/para leilão: o anúncio atual é encerrado e um novo é publicado na mesma operação.
+ * - Leilão com lances não pode ser alterado (os lances são compromissos de compra).
+ */
+export async function updateListing(userId: string, listingId: string, input: unknown, ip: string | null) {
+  const data = parse(listingSchema, input);
+  const settings = await loadSettings();
+  const pre = await db.listing.findUnique({ where: { id: listingId }, select: { cardId: true, auction: { select: { id: true } } } });
+  if (!pre) throw new NotFoundError("Anúncio");
+
+  return transaction(async (tx) => {
+    // Ordem de lock: auctions → listings → cards
+    if (pre.auction) await lockRow(tx, "auctions", pre.auction.id);
+    await lockRow(tx, "listings", listingId);
+    await lockRow(tx, "cards", pre.cardId);
+    const l = await tx.listing.findUniqueOrThrow({
+      where: { id: listingId },
+      include: { auction: true, card: { select: { id: true, name: true, quantity: true, status: true, ownerId: true } }, seller: { select: { role: true, sellerStatus: true, status: true } } },
+    });
+    if (l.sellerId !== userId) throw new ForbiddenError("Este anúncio não é seu.");
+    if (l.status !== "ACTIVE") throw new DomainError("Este anúncio já foi encerrado.");
+    if (!canSell(l.seller)) throw new DomainError("Sua habilitação de vendedor não está ativa.", "SELLER_NOT_APPROVED");
+    if (l.card.status !== "ACTIVE") throw new DomainError("Este card não pode ser anunciado.");
+    if (await cardHasOpenOrder(tx, l.cardId)) throw new DomainError("Este card tem um pedido em andamento; o anúncio não pode ser alterado agora.");
+    if (l.auction && l.auction.bidCount > 0) {
+      throw new DomainError("Este leilão já tem lances e não pode mais ser alterado. Os lances são compromissos de compra.");
+    }
+    if (data.quantity > l.card.quantity) {
+      throw new DomainError(`Você possui ${l.card.quantity} unidade(s) deste card.`, "VALIDATION", { quantity: "Quantidade maior que a disponível." });
+    }
+    const now = new Date();
+    const notes = maskText(data.notes) ?? null;
+
+    // 1) Venda direta / propostas → venda direta / propostas: altera no lugar
+    if (l.type !== "AUCTION" && data.type !== "AUCTION") {
+      await tx.listing.update({
+        where: { id: listingId },
+        data: { type: data.type, priceCents: data.price, currentPriceCents: data.price, shippingCents: data.shipping, quantity: data.quantity, notes },
+      });
+      let closed = 0;
+      if (l.type === "NEGOTIATION" && data.type === "DIRECT_SALE") {
+        closed = await closeOpenNegotiations(tx, listingId, l.card.name, `O vendedor mudou o anúncio para venda direta por ${formatBRL(data.price)}. Você pode comprar pelo anúncio.`, () => `/cards/${l.cardId}`);
+      } else if (data.type === "NEGOTIATION" && l.priceCents !== data.price) {
+        // Avisa quem está negociando que o preço de referência mudou
+        const open = await tx.negotiation.findMany({ where: { listingId, status: "OPEN" }, select: { id: true } });
+        if (open.length) {
+          await tx.negotiationMessage.createMany({
+            data: open.map((n) => ({ negotiationId: n.id, type: "SYSTEM" as const, body: `O vendedor alterou o preço de referência para ${formatBRL(data.price)}.` })),
+          });
+        }
+      }
+      await audit(tx, {
+        actorId: userId,
+        action: "listing.updated",
+        entityType: "listing",
+        entityId: listingId,
+        data: { before: { type: l.type, price: l.priceCents, shipping: l.shippingCents, quantity: l.quantity }, after: { type: data.type, price: data.price, shipping: data.shipping, quantity: data.quantity }, negotiationsClosed: closed },
+        ip,
+      });
+      return { cardId: l.cardId, auctionId: null as string | null, replaced: false };
+    }
+
+    // 2) Leilão (sem lances) → leilão: altera valores e datas
+    if (l.type === "AUCTION" && data.type === "AUCTION" && l.auction) {
+      const started = l.auction.startsAt <= now;
+      const { startsAt } = checkAuctionInput(data, settings, started ? l.auction.startsAt : undefined);
+      await tx.auction.update({
+        where: { id: l.auction.id },
+        data: {
+          startingBidCents: data.startingBid,
+          minIncrementCents: data.minIncrement,
+          reservePriceCents: data.reservePrice ?? null,
+          startsAt,
+          endsAt: data.endsAt,
+          status: startsAt <= now ? "ACTIVE" : "SCHEDULED",
+          endingSoonNotifiedAt: null,
+        },
+      });
+      await tx.listing.update({ where: { id: listingId }, data: { currentPriceCents: data.startingBid, shippingCents: data.shipping, quantity: data.quantity, notes } });
+      await audit(tx, {
+        actorId: userId,
+        action: "auction.updated",
+        entityType: "auction",
+        entityId: l.auction.id,
+        data: {
+          before: { startingBid: l.auction.startingBidCents, minIncrement: l.auction.minIncrementCents, endsAt: l.auction.endsAt.toISOString() },
+          after: { startingBid: data.startingBid, minIncrement: data.minIncrement, endsAt: data.endsAt.toISOString() },
+        },
+        ip,
+      });
+      return { cardId: l.cardId, auctionId: l.auction.id, replaced: false };
+    }
+
+    // 3) Troca de/para leilão: encerra o anúncio atual e publica o novo
+    await tx.listing.update({ where: { id: listingId }, data: { status: "CANCELLED", closedAt: now } });
+    if (l.auction) {
+      await tx.auction.update({ where: { id: l.auction.id }, data: { status: "CANCELLED", closedAt: now, cancelReason: "Anúncio alterado pelo vendedor." } });
+    }
+    if (l.type === "NEGOTIATION") {
+      await closeOpenNegotiations(tx, listingId, l.card.name, "O vendedor transformou o anúncio em leilão. Você pode dar lances na página do card.", () => `/cards/${l.cardId}`);
+    }
+    await audit(tx, { actorId: userId, action: "listing.replaced", entityType: "listing", entityId: listingId, data: { from: l.type, to: data.type }, ip });
+    const created = await insertListing(tx, { id: l.cardId, ownerId: l.sellerId }, data, { id: userId, role: "USER" }, settings, ip);
+    return { cardId: l.cardId, auctionId: created.auctionId, replaced: true };
   });
 }
 

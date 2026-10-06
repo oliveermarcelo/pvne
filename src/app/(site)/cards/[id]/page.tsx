@@ -6,7 +6,7 @@ import { getCurrentUser } from "@/server/auth/guards";
 import { getCardPage } from "@/server/modules/cards";
 import { isFavorite } from "@/server/modules/favorites";
 import { db } from "@/server/db";
-import { cancelListingAction, startNegotiationAction, updatePriceAction } from "@/app/actions/market";
+import { cancelListingAction, startNegotiationAction } from "@/app/actions/market";
 import { CardGallery } from "@/components/cards/gallery";
 import { CardDetails } from "@/components/cards/card-details";
 import { FavoriteButton } from "@/components/cards/favorite-button";
@@ -53,6 +53,7 @@ export default async function CardPage({ params, searchParams }: Props) {
       </nav>
 
       {sp.publicado && <Alert tone="ok" className="mb-6">Anúncio publicado! Ele já aparece no marketplace.</Alert>}
+      {sp.alterado && <Alert tone="ok" className="mb-6">Anúncio atualizado.</Alert>}
       {card.status === "BLOCKED" && <Alert tone="bad" className="mb-6">Este card foi bloqueado pela administração e não está visível para outros usuários.</Alert>}
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-12">
@@ -95,8 +96,7 @@ export default async function CardPage({ params, searchParams }: Props) {
 
               {card.isOwner ? (
                 <OwnerListingControls
-                  priceAction={updatePriceAction.bind(null, listing.id)}
-                  priceCents={listing.priceCents}
+                  editHref={card.openOrder ? undefined : `/conta/cards/${card.id}/anuncio`}
                   cancelAction={cancelListingAction.bind(null, listing.id)}
                   canCancel
                 />
