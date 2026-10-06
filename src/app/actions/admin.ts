@@ -9,6 +9,7 @@ import { db } from "@/server/db";
 import { audit } from "@/server/audit";
 import { DomainError, type ActionState } from "@/server/errors";
 import { SETTING_KEYS } from "@/server/settings";
+import { getSession } from "@/server/auth/session";
 import { isUploadUrl } from "@/server/storage";
 import * as users from "@/server/modules/users";
 import * as categories from "@/server/modules/categories";
@@ -28,12 +29,34 @@ async function ctx() {
 
 // ─── Usuários ─────────────────────────────────────────────────
 
+export async function adminCreateUserAction(_: ActionState, fd: FormData): Promise<ActionState> {
+  let id = "";
+  const res = await run(async () => {
+    const { admin, ip } = await ctx();
+    id = (await users.adminCreateUser(admin.id, formToObject(fd), ip)).id;
+  });
+  if (res.error) return res;
+  revalidatePath("/admin/usuarios", "layout");
+  redirect(`/admin/usuarios/${id}?criado=1`);
+}
+
 export async function adminUpdateUserAction(userId: string, _: ActionState, fd: FormData): Promise<ActionState> {
   return run(async () => {
     const { admin, ip } = await ctx();
     await users.adminUpdateUser(admin.id, userId, formToObject(fd), ip);
+    // Nome/foto aparecem no cabeçalho e no painel: atualiza o layout inteiro
+    revalidatePath("/", "layout");
+    return { ok: true, message: "Dados salvos." };
+  });
+}
+
+export async function adminSetPasswordAction(userId: string, _: ActionState, fd: FormData): Promise<ActionState> {
+  return run(async () => {
+    const { admin, ip } = await ctx();
+    const session = await getSession();
+    await users.adminSetPassword(admin.id, userId, formToObject(fd), session?.sessionId ?? "", ip);
     revalidatePath(`/admin/usuarios/${userId}`);
-    return { ok: true, message: "Usuário atualizado." };
+    return { ok: true, message: admin.id === userId ? "Sua senha foi alterada." : "Senha alterada. Informe a nova senha ao usuário por um canal seguro." };
   });
 }
 

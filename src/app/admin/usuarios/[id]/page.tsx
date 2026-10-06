@@ -3,24 +3,26 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireAdminPage } from "@/server/auth/guards";
 import { db } from "@/server/db";
-import { adminDeleteUserAction, adminSetUserStatusAction, adminUpdateUserAction } from "@/app/actions/admin";
+import { adminDeleteUserAction, adminSetPasswordAction, adminSetUserStatusAction, adminUpdateUserAction } from "@/app/actions/admin";
 import { adminSellerStatusAction } from "@/app/actions/sellers";
 import { SELLER_STATUS_LABELS } from "@/lib/labels";
 import { ActionForm, Field, SubmitButton } from "@/components/forms/action-form";
-import { Input, Select } from "@/components/forms/inputs";
+import { Checkbox, Input } from "@/components/forms/inputs";
+import { AdminUserFields } from "@/components/admin/user-fields";
+import { PasswordFields } from "@/components/admin/password-fields";
 import { ConfirmButton } from "@/components/forms/confirm-button";
-import { Avatar, DefinitionList, PageHeader } from "@/components/ui/misc";
+import { Alert, Avatar, DefinitionList, PageHeader } from "@/components/ui/misc";
 import { Badge } from "@/components/ui/badge";
 import { formatBRL } from "@/lib/money";
 import { formatDateTime } from "@/lib/dates";
 import { LISTING_STATUS_LABELS, LISTING_TYPE_LABELS, USER_STATUS_LABELS } from "@/lib/labels";
-import { BR_STATES } from "@/lib/utils";
 
 export const metadata: Metadata = { title: "Usuário · Admin" };
 
-export default async function AdminUserPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function AdminUserPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ criado?: string }> }) {
   const admin = await requireAdminPage();
   const { id } = await params;
+  const sp = await searchParams;
   const u = await db.user.findUnique({
     where: { id },
     include: {
@@ -39,7 +41,7 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
       <PageHeader
         eyebrow="Usuário"
         title={<span className="flex items-center gap-3"><Avatar name={u.name} src={u.avatarUrl} size={40} /> {u.name}</span>}
-        description={<>@{u.username} · <Badge tone={u.status === "ACTIVE" ? "ok" : "bad"}>{USER_STATUS_LABELS[u.status]}</Badge></>}
+        description={<>@{u.username} · <Badge tone={u.status === "ACTIVE" ? "ok" : "bad"}>{USER_STATUS_LABELS[u.status]}</Badge>{self && <> · <Badge tone="violet">Você</Badge></>}</>}
         actions={
           u.status !== "DELETED" && !self && (
             <>
@@ -53,8 +55,10 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           )
         }
       />
-      <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
-        <div className="space-y-6">
+      {sp.criado && <Alert tone="ok" className="mb-5">Usuário criado. Envie a senha a ele por um canal seguro.</Alert>}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1fr_400px]">
+        {/* No celular os formulários de edição vêm primeiro */}
+        <div className="space-y-6 max-xl:order-2">
           <section className="surface p-5">
             <DefinitionList
               items={[
@@ -109,19 +113,25 @@ export default async function AdminUserPage({ params }: { params: Promise<{ id: 
           </section>
         </div>
         {u.status !== "DELETED" && (
-          <ActionForm action={adminUpdateUserAction.bind(null, u.id)} className="surface space-y-4 p-5 xl:self-start">
-            <h2 className="text-sm font-semibold">Editar dados</h2>
-            <Field name="name" label="Nome"><Input name="name" defaultValue={u.name} /></Field>
-            <Field name="username" label="Usuário"><Input name="username" defaultValue={u.username} /></Field>
-            <Field name="email" label="E-mail"><Input name="email" type="email" defaultValue={u.email} /></Field>
-            <Field name="phone" label="Telefone"><Input name="phone" defaultValue={u.phone ?? ""} /></Field>
-            <div className="grid grid-cols-[1fr_90px] gap-3">
-              <Field name="city" label="Cidade"><Input name="city" defaultValue={u.city ?? ""} /></Field>
-              <Field name="state" label="UF"><Select name="state" defaultValue={u.state ?? ""}><option value="">—</option>{BR_STATES.map((s) => <option key={s}>{s}</option>)}</Select></Field>
-            </div>
-            <Field name="role" label="Papel"><Select name="role" defaultValue={u.role}><option value="USER">Colecionador</option><option value="ADMIN">Administrador</option></Select></Field>
-            <SubmitButton>Salvar</SubmitButton>
-          </ActionForm>
+          <div className="space-y-6 max-xl:order-1 xl:self-start">
+            <ActionForm action={adminUpdateUserAction.bind(null, u.id)} className="surface p-5">
+              <h2 className="mb-4 text-sm font-semibold">{self ? "Meus dados" : "Editar dados"}</h2>
+              <AdminUserFields u={u} lockRole={self} />
+              <SubmitButton className="mt-5 w-full">Salvar alterações</SubmitButton>
+            </ActionForm>
+
+            <ActionForm action={adminSetPasswordAction.bind(null, u.id)} resetOnSuccess className="surface space-y-4 p-5">
+              <div>
+                <h2 className="text-sm font-semibold">{self ? "Trocar minha senha" : "Trocar senha"}</h2>
+                <p className="mt-1 text-xs text-mist-400">
+                  {self ? "Você continua conectado neste aparelho." : "Não é preciso saber a senha atual. Informe a nova senha ao usuário por um canal seguro."}
+                </p>
+              </div>
+              <PasswordFields />
+              <Checkbox name="endSessions" defaultChecked label={self ? "Desconectar meus outros aparelhos" : "Desconectar o usuário de todos os aparelhos"} />
+              <SubmitButton variant="secondary" className="w-full" pendingText="Alterando…">Alterar senha</SubmitButton>
+            </ActionForm>
+          </div>
         )}
       </div>
     </>

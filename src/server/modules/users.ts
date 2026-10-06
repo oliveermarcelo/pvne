@@ -253,20 +253,83 @@ const adminUserSchema = z.object({
   phone,
   city: optText(80, "Cidade"),
   state,
-  role: z.enum(["USER", "ADMIN"]),
+  bio: optText(500, "Bio"),
+  avatarUrl: optUploadUrl,
+  role: z.enum(["USER", "ADMIN"], { errorMap: () => ({ message: "Papel inválido." }) }),
 });
+
+const adminCreateUserSchema = adminUserSchema
+  .extend({ password, passwordConfirm: z.string() })
+  .refine((d) => d.password === d.passwordConfirm, { message: "As senhas não conferem.", path: ["passwordConfirm"] });
+
+const adminPasswordSchema = z
+  .object({ password, passwordConfirm: z.string(), endSessions: z.literal("on").optional() })
+  .refine((d) => d.password === d.passwordConfirm, { message: "As senhas não conferem.", path: ["passwordConfirm"] });
+
+/** Administrador cria uma conta já ativa (sem passar pelo cadastro público). */
+export async function adminCreateUser(adminId: string, input: unknown, ip: string | null) {
+  const data = parse(adminCreateUserSchema, input);
+  await assertUnique(data.email, data.username);
+  const user = await db.user.create({
+    data: {
+      name: data.name,
+      username: data.username,
+      email: data.email,
+      phone: data.phone ?? null,
+      city: data.city ?? null,
+      state: data.state ?? null,
+      bio: maskText(data.bio) ?? null,
+      avatarUrl: data.avatarUrl ?? null,
+      role: data.role as UserRole,
+      // Administradores podem vender; colecionadores passam pela habilitação de vendedor normalmente
+      sellerStatus: data.role === "ADMIN" ? "APPROVED" : "NONE",
+      passwordHash: await hashPassword(data.password),
+    },
+  });
+  await audit(db, { actorId: adminId, action: "admin.user_created", entityType: "user", entityId: user.id, data: { role: data.role }, ip });
+  return user;
+}
 
 export async function adminUpdateUser(adminId: string, userId: string, input: unknown, ip: string | null) {
   const data = parse(adminUserSchema, input);
   const target = await db.user.findUnique({ where: { id: userId } });
   if (!target || target.status === "DELETED") throw new NotFoundError("Usuário");
-  if (adminId === userId && data.role !== "ADMIN") throw new DomainError("Você não pode remover seu próprio acesso de administrador.");
+  if (adminId === userId && data.role !== "ADMIN") throw new DomainError("Você não pode remover seu próprio acesso de administrador.", "VALIDATION", { role: "Você não pode remover seu próprio acesso de administrador." });
   await assertUnique(data.email, data.username, userId);
   await db.user.update({
     where: { id: userId },
-    data: { ...data, phone: data.phone ?? null, city: data.city ?? null, state: data.state ?? null, role: data.role as UserRole },
+    data: {
+      name: data.name,
+      username: data.username,
+      email: data.email,
+      phone: data.phone ?? null,
+      city: data.city ?? null,
+      state: data.state ?? null,
+      bio: maskText(data.bio) ?? null,
+      avatarUrl: data.avatarUrl ?? null,
+      role: data.role as UserRole,
+      ...(data.role === "ADMIN" && target.sellerStatus === "NONE" ? { sellerStatus: "APPROVED" as const } : {}),
+    },
   });
-  await audit(db, { actorId: adminId, action: "admin.user_updated", entityType: "user", entityId: userId, data: { role: data.role }, ip });
+  const changed = (["name", "username", "email", "phone", "city", "state", "role"] as const).filter((k) => (target[k] ?? null) !== ((data as Record<string, unknown>)[k] ?? null));
+  await audit(db, { actorId: adminId, action: "admin.user_updated", entityType: "user", entityId: userId, data: { changed }, ip });
+}
+
+/**
+ * Administrador define uma nova senha para qualquer usuário (inclusive a própria).
+ * Por padrão encerra as sessões abertas do usuário — exceto a sessão atual do próprio admin.
+ */
+export async function adminSetPassword(adminId: string, userId: string, input: unknown, currentSessionId: string, ip: string | null) {
+  const data = parse(adminPasswordSchema, input);
+  const target = await db.user.findUnique({ where: { id: userId } });
+  if (!target || target.status === "DELETED") throw new NotFoundError("Usuário");
+  const endSessions = data.endSessions === "on";
+  await db.$transaction([
+    db.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(data.password) } }),
+    db.passwordResetToken.deleteMany({ where: { userId } }),
+    ...(endSessions ? [db.session.deleteMany({ where: { userId, id: { not: currentSessionId } } })] : []),
+  ]);
+  await audit(db, { actorId: adminId, action: "admin.user_password_set", entityType: "user", entityId: userId, data: { endSessions }, ip });
 }
 
 export async function adminSetUserStatus(adminId: string, userId: string, status: Extract<UserStatus, "ACTIVE" | "BLOCKED">, ip: string | null) {

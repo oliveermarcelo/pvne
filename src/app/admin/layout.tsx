@@ -42,6 +42,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Link href="/" className="ml-auto inline-flex h-10 items-center gap-1.5 rounded-xl px-3 text-xs font-medium text-mist-400 hover:bg-white/5 hover:text-gold-200 lg:hidden">
             <ArrowLeft className="h-3.5 w-3.5" /> Ver site
           </Link>
+          <Link href={`/admin/usuarios/${admin.id}`} className="grid h-10 w-10 place-items-center rounded-xl hover:bg-white/5 lg:hidden" aria-label="Meu cadastro" title="Meu cadastro">
+            <Avatar name={admin.name} src={admin.avatarUrl} size={30} />
+          </Link>
         </div>
         <ScrollNav label="Menu do admin" className="scrollbar-none flex gap-1 overflow-x-auto px-3 pb-2.5 lg:flex-col lg:pb-24">
           {nav.map((n) => (
@@ -53,7 +56,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <Avatar name={admin.name} src={admin.avatarUrl} size={32} />
             <div className="min-w-0 text-xs">
               <p className="truncate font-semibold">{admin.name}</p>
-              <Link href="/" className="inline-flex items-center gap-1 text-mist-500 hover:text-gold-200"><ArrowLeft className="h-3 w-3" /> Voltar ao site</Link>
+              <span className="flex flex-wrap gap-x-3">
+                <Link href={`/admin/usuarios/${admin.id}`} className="text-mist-500 hover:text-gold-200">Meu cadastro</Link>
+                <Link href="/" className="inline-flex items-center gap-1 text-mist-500 hover:text-gold-200"><ArrowLeft className="h-3 w-3" /> Voltar ao site</Link>
+              </span>
             </div>
           </div>
         </div>

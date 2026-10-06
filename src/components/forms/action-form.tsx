@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useActionState, useContext, useEffect, useRef, type ReactNode } from "react";
+import { createContext, startTransition, useActionState, useContext, useEffect, useRef, type FormEvent, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
 import type { ActionState } from "@/server/errors";
 import { Alert } from "@/components/ui/misc";
@@ -11,6 +11,7 @@ type Action = (state: ActionState, fd: FormData) => Promise<ActionState>;
 
 const FormStateContext = createContext<ActionState>({});
 export const useFormState = () => useContext(FormStateContext);
+const PendingContext = createContext(false);
 
 /**
  * Formulário ligado a uma Server Action com feedback de erro/sucesso.
@@ -31,8 +32,26 @@ export function ActionForm({
   showMessage?: boolean;
   onSuccess?: (state: ActionState) => void;
 }) {
-  const [state, formAction] = useActionState(action, {});
+  const [state, formAction, pending] = useActionState(action, {});
   const ref = useRef<HTMLFormElement>(null);
+
+  // Envio pelo onSubmit (e não por <form action>): o React 19 limpa o formulário depois de
+  // toda ação enviada por "action", inclusive quando há erro de validação — o usuário perderia
+  // o que digitou. Aqui só limpamos em caso de sucesso, quando resetOnSuccess pedir.
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (pending) return;
+    const form = e.currentTarget;
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    let fd: FormData;
+    try {
+      fd = new FormData(form, submitter);
+    } catch {
+      fd = new FormData(form);
+      if (submitter?.name) fd.append(submitter.name, submitter.value);
+    }
+    startTransition(() => formAction(fd));
+  };
   useEffect(() => {
     if (state.ok) {
       if (resetOnSuccess) ref.current?.reset();
@@ -43,11 +62,13 @@ export function ActionForm({
 
   return (
     <FormStateContext.Provider value={state}>
-      <form ref={ref} action={formAction} className={className} noValidate>
-        {state.error && <Alert tone="bad" className="mb-5">{state.error}</Alert>}
-        {showMessage && state.ok && state.message && <Alert tone="ok" className="mb-5">{state.message}</Alert>}
-        {children}
-      </form>
+      <PendingContext.Provider value={pending}>
+        <form ref={ref} onSubmit={submit} className={className} noValidate>
+          {state.error && <Alert tone="bad" className="mb-5">{state.error}</Alert>}
+          {showMessage && state.ok && state.message && <Alert tone="ok" className="mb-5">{state.message}</Alert>}
+          {children}
+        </form>
+      </PendingContext.Provider>
     </FormStateContext.Provider>
   );
 }
@@ -71,7 +92,8 @@ export function SubmitButton({
   name?: string;
   value?: string;
 }) {
-  const { pending } = useFormStatus();
+  const status = useFormStatus();
+  const pending = useContext(PendingContext) || status.pending;
   return (
     <button type="submit" name={name} value={value} disabled={pending || disabled} className={buttonClass(variant, size, className)}>
       {pending ? (
